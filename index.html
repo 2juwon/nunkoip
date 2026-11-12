@@ -80,7 +80,7 @@ h1,h2,.jua{font-family:"Jua","Noto Sans KR",sans-serif;font-weight:400}
 .chip{display:inline-flex;align-items:center;gap:6px;background:#F3ECE5;border-radius:99px;padding:6px 8px 6px 12px;font-weight:500;border:2px solid transparent;cursor:default}
 .chip button{border:0;background:rgba(0,0,0,.08);width:22px;height:22px;border-radius:50%;cursor:pointer;line-height:1;font-size:12px}
 
-.setting{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.setting{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--line)}
 .setting:first-of-type{border-top:0}
 .setting small{color:var(--sub);font-size:12px;margin-left:4px}
 .seg{display:inline-flex;background:#F3ECE5;border-radius:12px;padding:3px}
@@ -156,6 +156,11 @@ h1,h2,.jua{font-family:"Jua","Noto Sans KR",sans-serif;font-weight:400}
 .stage{display:flex;justify-content:center;min-height:200px}
 .board{display:flex;flex-direction:column;align-items:center;gap:10px;background:#fff;border-radius:24px;padding:16px;box-shadow:0 3px 0 var(--line)}
 .eyerow{display:flex;justify-content:center}
+.collage{display:flex;flex-direction:column;gap:5px;animation:pop .45s cubic-bezier(.2,1.4,.4,1)}
+.collage .crow{display:flex;gap:5px}
+.collage canvas{display:block;border-radius:6px}
+.gray .collage canvas{filter:grayscale(1) contrast(1.05)}
+.seg{flex-wrap:wrap;justify-content:flex-end}
 .slot{position:relative;display:flex;align-items:center;justify-content:center}
 .slot canvas{display:block;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.12)}
 .slot canvas.pop{animation:pop .45s cubic-bezier(.2,1.6,.4,1)}
@@ -240,7 +245,7 @@ h1,h2,.jua{font-family:"Jua","Noto Sans KR",sans-serif;font-weight:400}
 
   <div class="card">
     <div class="step"><b>2</b> 참가자 <span class="opt">선택</span></div>
-    <p class="sub">이름을 넣으면 문제마다 누가 맞혔는지 골라 점수를 매겨요. 빨리 맞힐수록 점수가 커요 (한 부위만 보고 4점 · 둘 보고 3점 · 셋 보고 2점 · 넷 다 보고 1점). 비워 두면 점수 없이 진행해요.</p>
+    <p class="sub">이름을 넣으면 문제마다 누가 맞혔는지 골라 점수를 매겨요. 빨리 맞힐수록 점수가 커요 (한 부위만 보고 4점 · 둘 보고 3점 · 셋 보고 2점 · 넷 다 보고 1점, '한 번에 공개'는 맞히면 1점). 비워 두면 점수 없이 진행해요.</p>
     <form id="playerForm" class="row">
       <input id="playerName" placeholder="참가자 또는 팀 이름" maxlength="12" autocomplete="off">
       <button class="btn">추가</button>
@@ -251,7 +256,7 @@ h1,h2,.jua{font-family:"Jua","Noto Sans KR",sans-serif;font-weight:400}
   <div class="card">
     <div class="step"><b>3</b> 게임 설정</div>
     <div class="setting"><span>공개 순서</span>
-      <div class="seg" data-key="order"><button data-v="fixed">왼눈 → 오른눈 → 코 → 입</button><button data-v="random">문제마다 무작위</button></div>
+      <div class="seg" data-key="order"><button data-v="fixed">왼눈 → 오른눈 → 코 → 입</button><button data-v="random">문제마다 무작위</button><button data-v="all">한 번에 공개</button></div>
     </div>
     <div class="setting"><span>흑백으로 보기<small>어려워져요</small></span><label class="sw"><input type="checkbox" id="optGray"><i></i></label></div>
     <div class="setting"><span>보기 4개 보여주기<small id="choiceNote">사진 4장 이상</small></span><label class="sw"><input type="checkbox" id="optChoices"><i></i></label></div>
@@ -786,7 +791,8 @@ function startQuestion(){
   g.cur = {
     p,
     order: S.settings.order === 'random' ? shuffle(PARTS) : PARTS.slice(),
-    shown: 1,
+    collage: S.settings.order === 'all',
+    shown: S.settings.order === 'all' ? N : 1,
     revealed: false,
     picked: new Set(),
     choices: g.choices ? shuffle([p.name.trim(), ...shuffle(g.names.filter(n => n !== p.name.trim())).slice(0,3)]) : null,
@@ -806,13 +812,15 @@ function startQuestion(){
 function boardW(){
   const vw = document.documentElement.clientWidth, vh = window.innerHeight;
   const reserved = 240 + (game.choices ? 110 : 0) + (S.players.length ? 30 : 0);
-  return Math.floor(Math.max(200, Math.min(520, vw - 64, (vh - reserved) / 1.05)));
+  const k = game.cur && game.cur.collage ? .72 : 1.05;
+  return Math.floor(Math.max(200, Math.min(game.cur && game.cur.collage ? 560 : 520, vw - 64, (vh - reserved) / k)));
 }
 const SLOT = { eyeL: [.48, .3], eyeR: [.48, .3], nose: [.5, .36], mouth: [.72, .28] };
 async function renderBoard(){
   const g = game, c = g.cur, im = await imgOf(c.p);
   if(game !== g || g.cur !== c) return;
   const W = boardW();
+  if(c.collage){ renderCollage(W, im, c); return; }
   const shownSet = new Set(c.order.slice(0, c.shown));
   const board = $('#board'); board.innerHTML = '';
   const eyeRow = document.createElement('div'); eyeRow.className = 'eyerow'; eyeRow.style.gap = (W*.04)+'px';
@@ -841,9 +849,44 @@ async function renderBoard(){
   c.justShown = null;
   updateGameButtons();
 }
+/* 한 번에 공개: 위에 왼눈·코·오른눈, 아래에 입을 크게 */
+function cropAspect(im, b, aspect){
+  const IW = im.naturalWidth, IH = im.naturalHeight;
+  let sw = b.w*IW, sh = b.h*IH;
+  const cx = (b.x + b.w/2)*IW, cy = (b.y + b.h/2)*IH;
+  if(sw/sh < aspect) sw = sh*aspect; else sh = sw/aspect;
+  const k = Math.min(1, IW/sw, IH/sh); sw *= k; sh *= k;
+  const sx = clamp(cx - sw/2, 0, IW - sw), sy = clamp(cy - sh/2, 0, IH - sh);
+  const cv = document.createElement('canvas');
+  const scale = Math.min(2, 900/sw);
+  cv.width = Math.max(1, Math.round(sw*scale)); cv.height = Math.max(1, Math.round(sh*scale));
+  cv.getContext('2d').drawImage(im, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+  return cv;
+}
+function renderCollage(W, im, c){
+  const board = $('#board'); board.innerHTML = '';
+  board.style.width = (W + 32) + 'px';
+  const gap = 5, topH = Math.round(W*.27), botH = Math.round(W*.36);
+  const inner = W - gap*2;
+  const widths = { eyeL: Math.round(inner*.37), eyeR: Math.round(inner*.37) };
+  widths.nose = inner - widths.eyeL - widths.eyeR;
+  const wrap = document.createElement('div'); wrap.className = 'collage';
+  const top = document.createElement('div'); top.className = 'crow';
+  for(const part of ['eyeL', 'nose', 'eyeR']){
+    const cv = cropAspect(im, c.p.boxes[part], widths[part]/topH);
+    cv.style.width = widths[part]+'px'; cv.style.height = topH+'px';
+    top.appendChild(cv);
+  }
+  const mouth = cropAspect(im, c.p.boxes.mouth, W/botH);
+  mouth.style.width = W+'px'; mouth.style.height = botH+'px';
+  wrap.appendChild(top); wrap.appendChild(mouth);
+  board.appendChild(wrap);
+  updateGameButtons();
+}
 function pts(){ return Math.max(1, N + 1 - game.cur.shown); }
 function updateGameButtons(){
   const c = game.cur, nb = $('#nextPartBtn');
+  nb.classList.toggle('hidden', !!c.collage);
   if(c.shown < N){
     nb.disabled = false;
     nb.innerHTML = `${PART_KO[c.order[c.shown]]} 공개<span class="pts">맞히면 ${N - c.shown}점</span>`;
@@ -1010,7 +1053,7 @@ async function importFile(file){
   const pl = Array.isArray(d.players) ? d.players.filter(n => typeof n === 'string' && n.trim()).map(n => n.trim().slice(0, 12)) : [];
   if(pl.length && (mode === 'replace' || !S.players.length)) S.players = [...new Set(pl)].slice(0, 16);
   if(mode === 'replace' && d.settings && typeof d.settings === 'object'){
-    if(d.settings.order === 'fixed' || d.settings.order === 'random') S.settings.order = d.settings.order;
+    if(['fixed','random','all'].includes(d.settings.order)) S.settings.order = d.settings.order;
     S.settings.gray = !!d.settings.gray; S.settings.choices = !!d.settings.choices;
   }
   save(); renderPeople(); renderPlayers(); updateSettings();
