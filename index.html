@@ -263,6 +263,11 @@ h1,h2,.jua{font-family:"Jua","Noto Sans KR",sans-serif;font-weight:400}
 .prank small{color:var(--sub);font-weight:400}
 .nameinp{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:16px}
 #play .stage{min-height:0}
+.hostans{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 8px;min-height:36px}
+.anstoggle{border:1px dashed #D9C6B6;background:#fff;border-radius:99px;padding:5px 12px;font-size:13px;font-weight:700;cursor:pointer;color:var(--sub)}
+.anspeek{display:inline-flex;align-items:center;gap:8px;background:#2B2320;color:#fff;border-radius:99px;padding:3px 14px 3px 3px;font-weight:700}
+.anspeek img{width:30px;height:30px;border-radius:50%;object-fit:cover}
+.anspeek small{font-weight:400;opacity:.7;font-size:11px}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#2B2320;color:#fff;padding:10px 16px;border-radius:12px;opacity:0;pointer-events:none;transition:.25s;z-index:80;font-size:14px;max-width:90vw;text-align:center}
 #toast.on{opacity:1;transform:translateX(-50%)}
 </style>
@@ -328,6 +333,7 @@ h1,h2,.jua{font-family:"Jua","Noto Sans KR",sans-serif;font-weight:400}
     <div id="qnum"></div>
     <div class="spacer roomtag" id="gameRoom"></div>
   </div>
+  <div id="hostAns" class="hostans"><button id="ansToggle" class="anstoggle"></button><span id="ansPeek" class="anspeek"></span></div>
   <div id="scoreMini" class="scoremini"></div>
   <div class="stage">
     <div id="board" class="board"></div>
@@ -1030,7 +1036,7 @@ function startQuestion(){
   $('#answerBtn').classList.remove('hidden');
   $('#nextPartBtn').classList.remove('hidden');
   $('#nextQBtn').classList.add('hidden');
-  renderChoices(); renderScoreMini();
+  renderChoices(); renderScoreMini(); renderPeek();
   renderBoard().then(pushState);
 }
 function boardW(){
@@ -1126,6 +1132,20 @@ async function renderBoard(){
   drawBoard($('#board'), boardW(), c);
   updateGameButtons();
 }
+/* 출제자만 보는 정답: 방에서는 출제자 휴대폰이니 기본으로 보이고, 혼자 하기는 화면을 같이 보니 기본으로 숨김 */
+function peekOn(){ const k = game && game.online ? 'peekOnline' : 'peekLocal'; return S.settings[k] === undefined ? !!(game && game.online) : !!S.settings[k]; }
+function renderPeek(){
+  if(!game || !game.cur) return;
+  const on = peekOn(), c = game.cur, el = $('#ansPeek');
+  $('#ansToggle').textContent = on ? '🙈 정답 숨기기' : '🔒 출제자 정답 보기';
+  el.classList.toggle('hidden', !on || c.revealed);
+  if(on) el.innerHTML = `<img src="${c.p.src}" alt=""><span>${esc(c.p.name.trim())}</span><small>출제자만 보여요</small>`;
+  $('#hostAns').classList.toggle('hidden', c.revealed);
+}
+$('#ansToggle').addEventListener('click', () => {
+  const k = game && game.online ? 'peekOnline' : 'peekLocal';
+  S.settings[k] = !peekOn(); save(); renderPeek();
+});
 function pts(){ return Math.max(1, N + 1 - game.cur.shown); }
 function updateGameButtons(){
   const c = game.cur, nb = $('#nextPartBtn');
@@ -1191,6 +1211,7 @@ async function reveal(pickedName){
   const an = $('#ansName'); an.textContent = correct; an.style.animation = 'none'; void an.offsetWidth; an.style.animation = '';
   $('#board').classList.add('hidden');
   $('#revealView').classList.remove('hidden');
+  renderPeek();
   $('#nextPartBtn').classList.add('hidden');
   $('#answerBtn').classList.add('hidden');
   const last = g.idx >= g.queue.length - 1;
