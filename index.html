@@ -111,8 +111,14 @@ h1,h2,.jua{font-family:"Jua","Noto Sans KR",sans-serif;font-weight:400}
 .tab[data-part=nose].on{border-color:var(--nose)}
 .tab[data-part=mouth].on{border-color:var(--mouth)}
 .ed-body{flex:1;display:flex;min-height:0}
-.ed-stage{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;padding:12px;background:#2B2320}
-.ed-wrap{position:relative;touch-action:none;user-select:none;cursor:crosshair}
+.ed-stage{flex:1;min-width:0;min-height:0;position:relative;overflow:hidden;background:#2B2320;touch-action:none;user-select:none}
+.ed-wrap{position:absolute;left:0;top:0;cursor:crosshair}
+.ed-wrap.zoomed{cursor:grab}
+.zoombar{position:absolute;right:10px;bottom:10px;display:flex;gap:4px;align-items:center;background:rgba(255,255,255,.94);border-radius:12px;padding:4px;box-shadow:0 2px 10px rgba(0,0,0,.3);z-index:5}
+.zoombar button{border:0;background:transparent;border-radius:8px;padding:6px 9px;font-weight:700;cursor:pointer;font-size:14px}
+.zoombar button:hover{background:#F3ECE5}
+.zoombar .zb{font-size:18px;width:34px;padding:4px 0}
+#edZoomPct{font-size:12px;color:var(--sub);min-width:40px;text-align:center}
 .ed-wrap img{display:block;width:100%;height:100%;pointer-events:none;-webkit-user-drag:none}
 .ebox{position:absolute;border:3px solid;border-radius:6px;cursor:move;box-shadow:0 0 0 9999px rgba(0,0,0,0);background:rgba(255,255,255,.06)}
 .ebox span{position:absolute;left:-3px;top:-24px;color:#fff;font-size:12px;font-weight:700;padding:2px 7px;border-radius:6px 6px 6px 0;white-space:nowrap}
@@ -434,13 +440,14 @@ h1,h2,.jua{font-family:"Jua","Noto Sans KR",sans-serif;font-weight:400}
       </div>
     </div>
     <div class="ed-body">
-      <div class="ed-stage" id="edStage"><div class="ed-wrap" id="edWrap"><img id="edImg" alt=""></div></div>
+      <div class="ed-stage" id="edStage"><div class="ed-wrap" id="edWrap"><img id="edImg" alt=""></div>
+        <div class="zoombar"><button id="edFace" title="얼굴 쪽 확대">😀 얼굴</button><button id="edPart" title="고른 부위 확대">🔍 부위</button><button id="edFit" title="사진 전체">전체</button><button id="edZoomOut" class="zb" title="축소">−</button><span id="edZoomPct">100%</span><button id="edZoomIn" class="zb" title="확대">+</button></div></div>
       <div class="ed-side">
         <div class="prev" data-part="eyeL"><b>왼눈</b><canvas></canvas></div>
         <div class="prev" data-part="eyeR"><b>오른눈</b><canvas></canvas></div>
         <div class="prev" data-part="nose"><b>코</b><canvas></canvas></div>
         <div class="prev" data-part="mouth"><b>입</b><canvas></canvas></div>
-        <p class="ed-hint">상자를 끌어서 옮기고, 오른쪽 아래 동그라미로 크기를 바꿔요.<br><br>빈 곳을 드래그하면 위에서 고른 부위를 새로 그리고, 콕 누르면 그 자리로 옮겨요.</p>
+        <p class="ed-hint">상자를 끌어서 옮기고, 오른쪽 아래 동그라미로 크기를 바꿔요. 빈 곳을 콕 누르면 고른 부위가 그 자리로 와요.<br><br><b>확대</b>: 마우스 휠, 두 손가락 벌리기, 아래 + 버튼. 확대한 상태에서 빈 곳을 끌면 화면이 움직여요.<br><br>전체 보기에서 빈 곳을 끌면 고른 부위를 새로 그려요.</p>
       </div>
     </div>
     <div class="ed-foot">
@@ -522,7 +529,7 @@ function loadFile(file){
     const url = URL.createObjectURL(file);
     const im = new Image();
     im.onload = () => {
-      const MAX = 1100;
+      const MAX = 1800;
       const s = Math.min(1, MAX / Math.max(im.naturalWidth, im.naturalHeight));
       const w = Math.round(im.naturalWidth*s), h = Math.round(im.naturalHeight*s);
       const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -779,15 +786,13 @@ function openEditor(p){
   }
   $('#editor').classList.remove('hidden');
   edImg.src = p.src;
-  imgOf(p).then(() => { layoutEditor(); renderEd(); drawPreviews(); });
-}
-function layoutEditor(){
-  if(!ed) return;
-  const st = $('#edStage'); const cs = getComputedStyle(st);
-  const aw = st.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-  const ah = st.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-  const s = Math.min(aw/ed.p.w, ah/ed.p.h);
-  edWrap.style.width = Math.floor(ed.p.w*s) + 'px'; edWrap.style.height = Math.floor(ed.p.h*s) + 'px';
+  ed.view = null;
+  imgOf(p).then(() => {
+    if(!ed || ed.p !== p) return;
+    layoutEditor(); renderEd(); drawPreviews();
+    // 큰 사진은 얼굴 쪽으로 확대해서 시작
+    if(p.checked || p.auto === 'ok') focusFace();
+  });
 }
 function renderEd(){
   for(const el of edWrap.querySelectorAll('.ebox')){
@@ -806,46 +811,141 @@ function drawPreviews(){
     document.querySelectorAll('.prev').forEach(pv => cropInto(pv.querySelector('canvas'), im, ed.boxes[pv.dataset.part]));
   });
 }
+/* 보기: 사진을 맞춤 크기(s0)의 z배로 키우고 (ox, oy)만큼 옮겨서 보여 줌 */
+function stageSize(){ const st = $('#edStage'); return { w: st.clientWidth, h: st.clientHeight }; }
+function layoutEditor(keep){
+  if(!ed) return;
+  const { w, h } = stageSize();
+  const s0 = Math.min((w - 24)/ed.p.w, (h - 24)/ed.p.h);
+  const old = ed.view;
+  if(keep && old){
+    // 화면 크기가 바뀌어도 보던 곳 가운데를 유지
+    const cx = (old.w/2 - old.ox) / (ed.p.w*old.s0*old.z), cy = (old.h/2 - old.oy) / (ed.p.h*old.s0*old.z);
+    ed.view = { s0, z: old.z, ox: 0, oy: 0, w, h };
+    ed.view.ox = w/2 - cx*ed.p.w*s0*old.z; ed.view.oy = h/2 - cy*ed.p.h*s0*old.z;
+  }else ed.view = { s0, z: 1, ox: 0, oy: 0, w, h };
+  clampView(); applyView();
+}
+function clampView(){
+  const v = ed.view, iw = ed.p.w*v.s0*v.z, ih = ed.p.h*v.s0*v.z;
+  v.ox = iw <= v.w ? (v.w - iw)/2 : clamp(v.ox, v.w - iw - 40, 40);
+  v.oy = ih <= v.h ? (v.h - ih)/2 : clamp(v.oy, v.h - ih - 40, 40);
+}
+function applyView(){
+  const v = ed.view;
+  Object.assign(edWrap.style, { width: ed.p.w*v.s0*v.z + 'px', height: ed.p.h*v.s0*v.z + 'px', left: v.ox + 'px', top: v.oy + 'px' });
+  $('#edZoomPct').textContent = Math.round(v.z*100) + '%';
+  edWrap.classList.toggle('zoomed', v.z > 1.01);
+}
+const ZMAX = 12;
+function zoomAt(z, cx, cy){
+  const v = ed.view, z1 = clamp(z, 1, ZMAX), k = z1 / v.z;
+  v.ox = cx - (cx - v.ox)*k; v.oy = cy - (cy - v.oy)*k; v.z = z1;
+  clampView(); applyView();
+}
+function focusRect(r){
+  const v = ed.view, W0 = ed.p.w*v.s0, H0 = ed.p.h*v.s0;
+  v.z = clamp(Math.min(v.w / (r.w*W0), v.h / (r.h*H0)), 1, ZMAX);
+  v.ox = v.w/2 - (r.x + r.w/2)*W0*v.z; v.oy = v.h/2 - (r.y + r.h/2)*H0*v.z;
+  clampView(); applyView();
+}
+function padRect(boxes, pad){
+  const x0 = Math.min(...boxes.map(b => b.x)), y0 = Math.min(...boxes.map(b => b.y));
+  const x1 = Math.max(...boxes.map(b => b.x + b.w)), y1 = Math.max(...boxes.map(b => b.y + b.h));
+  const w = x1 - x0, h = y1 - y0;
+  return { x: x0 - w*pad, y: y0 - h*pad, w: w*(1 + 2*pad), h: h*(1 + 2*pad) };
+}
+function focusFace(){ focusRect(padRect(PARTS.map(p => ed.boxes[p]), .55)); }
+function focusPart(part){ const b = ed.boxes[part]; focusRect(padRect([b], 1.2)); }
+
 function ptOf(e){ const r = edWrap.getBoundingClientRect(); return { x: (e.clientX - r.left)/r.width, y: (e.clientY - r.top)/r.height }; }
-edWrap.addEventListener('pointerdown', e => {
-  if(!ed || e.button > 0) return;
+function stagePt(e){ const r = $('#edStage').getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+const edStage = $('#edStage');
+const ptrs = new Map();
+let pinch = null;
+edStage.addEventListener('pointerdown', e => {
+  if(!ed || e.button > 0 || e.target.closest('.zoombar')) return;
+  ptrs.set(e.pointerId, stagePt(e));
+  try{ edStage.setPointerCapture(e.pointerId); }catch(_){}
+  e.preventDefault();
+  if(ptrs.size === 2){
+    // 두 손가락: 하던 상자 작업은 되돌리고 확대·이동
+    if(drag && drag.mode !== 'pan'){ ed.boxes[drag.part] = drag.b0; renderEd(); drawPreviews(); }
+    drag = null;
+    const [a, b] = [...ptrs.values()], v = ed.view;
+    const c = { x: (a.x + b.x)/2, y: (a.y + b.y)/2 };
+    pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, z0: v.z, px: (c.x - v.ox)/v.z, py: (c.y - v.oy)/v.z };
+    return;
+  }
+  if(ptrs.size > 2) return;
   const pt = ptOf(e);
   const boxEl = e.target.closest('.ebox');
-  let part, mode;
+  let part = ed.active, mode;
   if(boxEl){ part = boxEl.dataset.part; mode = e.target.classList.contains('h') ? 'resize' : 'move'; }
-  else { part = ed.active; mode = 'draw'; }
+  else mode = ed.view.z > 1.01 ? 'pan' : 'draw';
   ed.active = part;
-  drag = { mode, part, p0: pt, b0: { ...ed.boxes[part] }, moved: false };
-  try{ edWrap.setPointerCapture(e.pointerId); }catch(_){}
-  e.preventDefault(); renderEd();
+  drag = { mode, part, p0: pt, s0: stagePt(e), o0: { x: ed.view.ox, y: ed.view.oy }, b0: { ...ed.boxes[part] }, moved: false };
+  renderEd();
 });
-edWrap.addEventListener('pointermove', e => {
+edStage.addEventListener('pointermove', e => {
+  if(!ptrs.has(e.pointerId)) return;
+  ptrs.set(e.pointerId, stagePt(e));
+  if(pinch && ptrs.size >= 2){
+    const [a, b] = [...ptrs.values()], v = ed.view;
+    const c = { x: (a.x + b.x)/2, y: (a.y + b.y)/2 };
+    v.z = clamp(pinch.z0 * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0, 1, ZMAX);
+    v.ox = c.x - pinch.px*v.z; v.oy = c.y - pinch.py*v.z;
+    clampView(); applyView();
+    return;
+  }
   if(!drag) return;
+  if(drag.mode === 'pan'){
+    const sp = stagePt(e), dx = sp.x - drag.s0.x, dy = sp.y - drag.s0.y;
+    if(Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+    ed.view.ox = drag.o0.x + dx; ed.view.oy = drag.o0.y + dy; clampView(); applyView();
+    return;
+  }
   const pt = ptOf(e), b0 = drag.b0;
   const dx = pt.x - drag.p0.x, dy = pt.y - drag.p0.y;
-  if(Math.abs(dx) + Math.abs(dy) > .008) drag.moved = true;
+  if(Math.abs(dx) + Math.abs(dy) > .008 / ed.view.z) drag.moved = true;
   if(!drag.moved) return;
+  const mn = Math.min(MIN, .01);
   let b;
   if(drag.mode === 'move') b = { x: clamp(b0.x+dx, 0, 1-b0.w), y: clamp(b0.y+dy, 0, 1-b0.h), w: b0.w, h: b0.h };
-  else if(drag.mode === 'resize') b = { x: b0.x, y: b0.y, w: clamp(b0.w+dx, MIN, 1-b0.x), h: clamp(b0.h+dy, MIN, 1-b0.y) };
+  else if(drag.mode === 'resize') b = { x: b0.x, y: b0.y, w: clamp(b0.w+dx, mn, 1-b0.x), h: clamp(b0.h+dy, mn, 1-b0.y) };
   else {
     const x0 = clamp(drag.p0.x,0,1), y0 = clamp(drag.p0.y,0,1), x1 = clamp(pt.x,0,1), y1 = clamp(pt.y,0,1);
-    b = { x: Math.min(x0,x1), y: Math.min(y0,y1), w: Math.max(MIN, Math.abs(x1-x0)), h: Math.max(MIN, Math.abs(y1-y0)) };
+    b = { x: Math.min(x0,x1), y: Math.min(y0,y1), w: Math.max(mn, Math.abs(x1-x0)), h: Math.max(mn, Math.abs(y1-y0)) };
     b.x = Math.min(b.x, 1-b.w); b.y = Math.min(b.y, 1-b.h);
   }
   ed.boxes[drag.part] = b; renderEd(); drawPreviews();
 });
-function endDrag(e){
+function endPtr(e){
+  if(!ptrs.has(e.pointerId)) return;
+  ptrs.delete(e.pointerId);
+  if(pinch){ if(ptrs.size < 2) pinch = null; drag = null; return; }
   if(!drag) return;
-  if(!drag.moved && drag.mode === 'draw'){
+  if(!drag.moved && (drag.mode === 'draw' || drag.mode === 'pan')){
+    // 콕 누르면 고른 부위를 그 자리로
     const pt = ptOf(e), b0 = drag.b0;
     ed.boxes[drag.part] = { ...b0, x: clamp(pt.x - b0.w/2, 0, 1-b0.w), y: clamp(pt.y - b0.h/2, 0, 1-b0.h) };
     renderEd(); drawPreviews();
   }
   drag = null;
 }
-edWrap.addEventListener('pointerup', endDrag);
-edWrap.addEventListener('pointercancel', () => { drag = null; });
+edStage.addEventListener('pointerup', endPtr);
+edStage.addEventListener('pointercancel', e => { ptrs.delete(e.pointerId); if(ptrs.size < 2) pinch = null; drag = null; });
+edStage.addEventListener('wheel', e => {
+  if(!ed) return;
+  e.preventDefault();
+  const sp = stagePt(e), dy = e.deltaMode === 1 ? e.deltaY*16 : e.deltaY;
+  zoomAt(ed.view.z * Math.exp(-dy * .0018), sp.x, sp.y);
+}, { passive: false });
+$('#edZoomIn').addEventListener('click', () => { const v = ed.view; zoomAt(v.z*1.5, v.w/2, v.h/2); });
+$('#edZoomOut').addEventListener('click', () => { const v = ed.view; zoomAt(v.z/1.5, v.w/2, v.h/2); });
+$('#edFit').addEventListener('click', () => { ed.view.z = 1; clampView(); applyView(); });
+$('#edFace').addEventListener('click', focusFace);
+$('#edPart').addEventListener('click', () => focusPart(ed.active));
 $('#edTabs').addEventListener('click', e => { const t = e.target.closest('.tab'); if(!t || !ed) return; ed.active = t.dataset.part; renderEd(); });
 document.querySelectorAll('.prev').forEach(pv => pv.addEventListener('click', () => { if(ed){ ed.active = pv.dataset.part; renderEd(); } }));
 $('#edAuto').addEventListener('click', async () => {
@@ -855,18 +955,18 @@ $('#edAuto').addEventListener('click', async () => {
   try{
     const r = await detectFace(cur.p);
     if(ed !== cur) return;
-    if(r){ ed.boxes = r.boxes; renderEd(); drawPreviews(); toast(r.count > 1 ? `얼굴 ${r.count}개 중 가장 큰 얼굴로 맞췄어요` : '자동으로 맞췄어요'); }
+    if(r){ ed.boxes = r.boxes; renderEd(); drawPreviews(); focusFace(); toast(r.count > 1 ? `얼굴 ${r.count}개 중 가장 큰 얼굴로 맞췄어요` : '자동으로 맞췄어요'); }
     else toast('얼굴을 못 찾았어요. 직접 지정해 주세요');
   }catch(e){ toast('자동 인식을 불러오지 못했어요'); }
   finally{ b.disabled = false; b.textContent = '🪄 자동 인식'; }
 });
-$('#edReset').addEventListener('click', () => { if(!ed) return; ed.boxes = copyBoxes(DEFAULT_BOXES); renderEd(); drawPreviews(); });
-function closeEditor(){ $('#editor').classList.add('hidden'); ed = null; drag = null; }
+$('#edReset').addEventListener('click', () => { if(!ed) return; ed.boxes = copyBoxes(DEFAULT_BOXES); renderEd(); drawPreviews(); ed.view.z = 1; clampView(); applyView(); });
+function closeEditor(){ $('#editor').classList.add('hidden'); ed = null; drag = null; pinch = null; ptrs.clear(); }
 $('#edCancel').addEventListener('click', closeEditor);
 $('#edDone').addEventListener('click', () => {
   ed.p.boxes = copyBoxes(ed.boxes); ed.p.checked = true; ed.p.auto = null; save(); closeEditor(); renderPeople();
 });
-window.addEventListener('resize', () => { if(ed) layoutEditor(); if(game) layoutGame(); });
+window.addEventListener('resize', () => { if(ed && ed.view) layoutEditor(true); if(game) layoutGame(); });
 
 /* ---------- 게임 ---------- */
 const SCREENS = ['setup','game','result','lobby','join','play'];
