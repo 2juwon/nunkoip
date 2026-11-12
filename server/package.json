@@ -1,0 +1,14 @@
+{
+  "name": "nunkoip-room",
+  "version": "1.0.0",
+  "description": "눈코입 게임 같이 하기 방 서버",
+  "scripts": {
+    "dev": "wrangler dev --port 8787 --ip 127.0.0.1",
+    "test": "node test/room.test.mjs",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^3.114.17"
+  },
+  "private": true
+}
