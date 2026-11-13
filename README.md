@@ -27,11 +27,21 @@
 
 ### 방 서버 (`server/`)
 
-Cloudflare Workers + Durable Objects(무료 플랜)로 돌아가요. 주소는 `https://nunkoip.2juwon.workers.dev`이에요.
+Cloudflare Workers + Durable Objects(무료 플랜)로 돌아가요. 방(`Room`)과 공유 문제(`Pack`, 30일 보관)를 맡아요. 주소는 `https://nunkoip.2juwon.workers.dev`이에요.
 
 - `main`에서 `server/`가 바뀌면 GitHub Actions **서버 배포**가 자동으로 올려요.
 - 저장소 **Settings → Secrets and variables → Actions**에 `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`가 있어야 해요. 없으면 배포를 건너뛰어요.
 - 로컬에서 시험하기: `cd server && npm i && npm run dev`를 실행한 뒤 다른 창에서 `npm test`를 실행해요. `index.html`을 파일로 열면 로컬 서버(127.0.0.1:8787)에 붙어요.
+
+## 링크로 공유
+
+**🔗 링크로 공유**를 누르면 이름(정답)을 적은 사진, 눈코입 위치, 설정이 서버에 올라가요. 그리고 `…/nunkoip/#q-xxxxxxxxxx` 링크가 만들어져요.
+
+- 링크를 연 사람은 그 문제를 자기 게임으로 가져갈 수 있어요. 지금 있는 사진에 추가하거나 바꿀 수 있어요.
+- 목록이나 검색은 없어요. **링크를 아는 사람만** 볼 수 있어요.
+- 올린 지 **30일** 뒤에 자동으로 지워져요. 만든 브라우저의 "내가 공유한 문제"에서 언제든 지울 수도 있어요.
+- 사진 속 사람들에게 허락받았다고 체크해야 올릴 수 있어요.
+- 참가자·팀 이름은 올라가지 않아요.
 
 ## 문제 파일
 

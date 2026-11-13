@@ -13,7 +13,7 @@ const IMG_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', ...CORS } });
@@ -50,10 +50,105 @@ export default {
       return stub.fetch(new Request('https://room/ws' + url.search, req));
     }
 
+    // ---- 문제 공유 링크 ----
+    if (url.pathname === '/api/packs' && req.method === 'POST') {
+      const len = +(req.headers.get('Content-Length') || 0);
+      if (len > PACK_MAX_BODY) return json({ error: 'too_large' }, 413);
+      const text = await req.text();
+      if (text.length > PACK_MAX_BODY) return json({ error: 'too_large' }, 413);
+      let d; try { d = JSON.parse(text); } catch (e) { return json({ error: 'bad_json' }, 400); }
+      const pack = cleanPack(d);
+      if (!pack) return json({ error: 'bad_pack' }, 400);
+      const id = rid(10), delKey = rid(20);
+      const stub = env.PACK.get(env.PACK.idFromName(id));
+      const r = await stub.fetch('https://pack/put', { method: 'POST', body: JSON.stringify({ ...pack, delKey }) });
+      if (!r.ok) return json({ error: 'save_failed' }, 500);
+      const meta = await r.json();
+      return json({ id, delKey, expires: meta.expires, count: pack.people.length });
+    }
+    m = url.pathname.match(/^\/api\/packs\/([a-z0-9]{10})$/);
+    if (m) {
+      const stub = env.PACK.get(env.PACK.idFromName(m[1]));
+      if (req.method === 'GET') return stub.fetch('https://pack/get');
+      if (req.method === 'DELETE') return stub.fetch('https://pack/del?key=' + encodeURIComponent(url.searchParams.get('key') || ''), { method: 'POST' });
+    }
+
     if (url.pathname === '/' || url.pathname === '/api/health') return json({ ok: true, app: 'nunkoip-room' });
     return json({ error: 'not found' }, 404);
   },
 };
+
+// ---- 문제 공유 링크: 링크를 아는 사람만, 30일 뒤 자동 삭제 ----
+const PACK_TTL = 30 * 24 * 60 * 60 * 1000;
+const PACK_MAX_BODY = 60_000_000;
+const PACK_MAX_PEOPLE = 80;
+const PACK_MAX_SRC = 1_900_000;          // Durable Object 값 하나 2MB 제한 안쪽
+const PACK_IMG_RE = /^data:image\/(jpeg|png|webp|gif);base64,[A-Za-z0-9+/=]+$/;
+const BOX_KEYS = ['eyeL', 'eyeR', 'nose', 'mouth', 'eyes'];
+function cleanBox(b) {
+  const n = v => typeof v === 'number' && isFinite(v) && v >= -0.01 && v <= 1.01;
+  if (!b || !n(b.x) || !n(b.y) || !n(b.w) || !n(b.h)) return null;
+  return { x: +b.x, y: +b.y, w: +b.w, h: +b.h };
+}
+function cleanPack(d) {
+  if (!d || d.app !== 'nunkoip' || !Array.isArray(d.people)) return null;
+  if (d.people.length < 1 || d.people.length > PACK_MAX_PEOPLE) return null;
+  const people = [];
+  for (const q of d.people) {
+    if (!q || typeof q.src !== 'string' || q.src.length > PACK_MAX_SRC || !PACK_IMG_RE.test(q.src)) return null;
+    const boxes = {};
+    if (q.boxes && typeof q.boxes === 'object') for (const k of BOX_KEYS) { const b = cleanBox(q.boxes[k]); if (b) boxes[k] = b; }
+    people.push({
+      name: str(q.name, 20), src: q.src, boxes, checked: !!q.checked,
+      w: Number.isInteger(q.w) && q.w > 0 && q.w < 10000 ? q.w : 0,
+      h: Number.isInteger(q.h) && q.h > 0 && q.h < 10000 ? q.h : 0,
+    });
+  }
+  const st = d.settings && typeof d.settings === 'object' ? d.settings : {};
+  const settings = { order: ['fixed', 'random', 'all'].includes(st.order) ? st.order : 'fixed', gray: !!st.gray, choices: !!st.choices };
+  return { title: str(d.title, 40) || `눈코입 문제 ${people.length}장`, people, settings };
+}
+
+export class Pack {
+  constructor(ctx, env) { this.ctx = ctx; this.env = env; }
+
+  async fetch(req) {
+    const url = new URL(req.url), st = this.ctx.storage;
+    const meta = await st.get('meta');
+    const live = meta && Date.now() < meta.expires;
+
+    if (url.pathname === '/put') {
+      if (meta) return json({ error: 'exists' }, 409);
+      const d = await req.json();
+      const now = Date.now();
+      const m = { title: d.title, count: d.people.length, settings: d.settings, created: now, expires: now + PACK_TTL, delKey: d.delKey };
+      const entries = { meta: m };
+      d.people.forEach((p, i) => { entries['p' + i] = p; });
+      await st.put(entries);
+      await st.setAlarm(m.expires);
+      return json({ ok: true, expires: m.expires });
+    }
+
+    if (url.pathname === '/get') {
+      if (!live) return json({ error: 'not_found' }, 404);
+      const keys = Array.from({ length: meta.count }, (_, i) => 'p' + i);
+      const got = await st.get(keys);
+      const people = keys.map(k => got.get(k)).filter(Boolean);
+      return json({ app: 'nunkoip', v: 2, title: meta.title, people, settings: meta.settings, created: meta.created, expires: meta.expires });
+    }
+
+    if (url.pathname === '/del') {
+      if (!meta) return json({ ok: true, gone: true });
+      if (url.searchParams.get('key') !== meta.delKey) return json({ error: 'bad_key' }, 403);
+      await st.deleteAlarm();
+      await st.deleteAll();
+      return json({ ok: true });
+    }
+    return json({ error: 'not_found' }, 404);
+  }
+
+  async alarm() { await this.ctx.storage.deleteAll(); }
+}
 
 export class Room {
   constructor(ctx, env) {

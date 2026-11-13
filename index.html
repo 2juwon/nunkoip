@@ -263,6 +263,18 @@ h1,h2,.jua{font-family:"Jua","Noto Sans KR",sans-serif;font-weight:400}
 .prank small{color:var(--sub);font-weight:400}
 .nameinp{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:16px}
 #play .stage{min-height:0}
+.myshares{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+.mstitle{font-weight:700;font-size:14px;margin-bottom:6px}
+.msrow{display:flex;align-items:center;gap:6px;padding:6px 0}
+.msinfo{flex:1;min-width:0}
+.msinfo b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}
+.msinfo small{color:var(--sub);font-size:12px}
+.sharedlg{text-align:left;white-space:normal}
+.sharedlg .sdt{font-family:'Jua';font-size:22px;margin-bottom:6px;text-align:center}
+.sharedlg p{margin:0 0 10px;line-height:1.55;font-size:14px}
+.shnote{margin:10px 0;padding-left:18px;color:var(--sub);font-size:13px;line-height:1.6}
+.consent{display:flex;gap:8px;align-items:flex-start;font-size:14px;font-weight:700;background:#FFF4E5;border-radius:10px;padding:10px;cursor:pointer}
+.consent input{width:18px;height:18px;margin-top:1px;flex:none}
 .hostans{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 8px;min-height:36px}
 .anstoggle{border:1px dashed #D9C6B6;background:#fff;border-radius:99px;padding:5px 12px;font-size:13px;font-weight:700;cursor:pointer;color:var(--sub)}
 .anspeek{display:inline-flex;align-items:center;gap:8px;background:#2B2320;color:#fff;border-radius:99px;padding:3px 14px 3px 3px;font-weight:700}
@@ -293,8 +305,9 @@ h1,h2,.jua{font-family:"Jua","Noto Sans KR",sans-serif;font-weight:400}
     </label>
     <div id="autoBar" class="autobar hidden"><span id="autoMsg"></span><button id="autoAllBtn" class="btn sm">🪄 확인 안 된 사진 자동 인식</button></div>
     <div id="people" class="people"></div>
-    <div class="iobar"><button id="exportBtn" class="btn sm">📤 문제 내보내기</button><button id="importBtn" class="btn sm">📥 문제 가져오기</button><input type="file" id="importFile" accept=".json,application/json" hidden></div>
-    <p class="iohint">만든 문제를 파일(.json)로 저장해 두거나, 다른 기기·다른 사람에게 보내서 그대로 쓸 수 있어요.</p>
+    <div class="iobar"><button id="exportBtn" class="btn sm">📤 문제 내보내기</button><button id="importBtn" class="btn sm">📥 문제 가져오기</button><button id="shareBtn" class="btn sm">🔗 링크로 공유</button><input type="file" id="importFile" accept=".json,application/json" hidden></div>
+    <p class="iohint">만든 문제를 파일(.json)로 저장하거나 링크로 공유해서, 다른 기기·다른 사람이 그대로 쓸 수 있어요.</p>
+    <div id="myShares" class="myshares hidden"></div>
   </div>
 
   <div class="card">
@@ -1687,6 +1700,11 @@ async function importFile(file){
   let d;
   try{ d = JSON.parse(await file.text()); }catch(e){ toast('파일을 읽을 수 없어요'); return; }
   if(!d || d.app !== 'nunkoip' || !Array.isArray(d.people)){ toast('눈코입 게임에서 내보낸 파일이 아니에요'); return; }
+  await importData(d, '');
+}
+/* 파일·공유 링크 공통: 검사해서 지금 문제에 넣기. 넣었으면 true */
+async function importData(d, head){
+  if(!d || d.app !== 'nunkoip' || !Array.isArray(d.people)){ toast('눈코입 게임 문제가 아니에요'); return false; }
   const list = [];
   let bad = 0;
   for(const q of d.people){
@@ -1700,12 +1718,15 @@ async function importFile(file){
     if(boxes.eyes === null) delete boxes.eyes;
     list.push(migrate({ id: uid(), name: String(q.name || '').slice(0, 20), src: q.src, w: size.w, h: size.h, boxes, checked: !!q.checked, auto: null }));
   }
-  if(!list.length){ toast('가져올 수 있는 사진이 없어요'); return; }
+  if(!list.length){ toast('가져올 수 있는 사진이 없어요'); return false; }
   let mode = 'add';
+  const top = head ? head + '\n\n' : '';
   if(S.people.length){
-    const i = await choose(`사진 ${list.length}장을 가져와요.\n지금 있는 사진 ${S.people.length}장은 어떻게 할까요?`, ['취소', '지우고 바꾸기', '뒤에 추가']);
-    if(i === 0) return;
+    const i = await choose(`${top}사진 ${list.length}장을 가져와요.\n지금 있는 사진 ${S.people.length}장은 어떻게 할까요?`, ['취소', '지우고 바꾸기', '뒤에 추가']);
+    if(i === 0) return false;
     mode = i === 1 ? 'replace' : 'add';
+  }else if(head){
+    if(!(await ask(`${top}이 문제를 가져올까요?`, '가져오기'))) return false;
   }
   if(mode === 'replace'){ S.people = []; imgCache.clear(); }
   S.people.push(...list);
@@ -1717,7 +1738,125 @@ async function importFile(file){
   }
   save(); renderPeople(); renderPlayers(); updateSettings();
   toast(`${list.length}장 가져왔어요` + (bad ? ` (${bad}장은 읽지 못함)` : ''));
+  return true;
 }
+/* ---------- 링크로 공유 (서버에 30일 보관, 링크를 아는 사람만) ---------- */
+const pageBase = () => ONLINE_OK && !IS_LOCAL ? location.origin + location.pathname : (IS_LOCAL ? location.href.split('#')[0] : PAGE_URL);
+const shareUrl = id => pageBase() + '#q-' + id;
+function myShares(){ const a = LS.get('nk-shares'); return Array.isArray(a) ? a.filter(x => x && x.expires > Date.now()) : []; }
+function fmtDate(t){ const d = new Date(t); return `${d.getMonth()+1}월 ${d.getDate()}일`; }
+function renderMyShares(){
+  const list = myShares(), box = $('#myShares');
+  box.classList.toggle('hidden', !list.length);
+  box.innerHTML = list.length ? '<div class="mstitle">내가 공유한 문제</div>' + list.map(x => `
+    <div class="msrow"><div class="msinfo"><b>${esc(x.title)}</b><small>${x.count}장 · ${fmtDate(x.expires)}까지</small></div>
+      <button class="btn sm" data-copy="${esc(x.id)}">링크 복사</button><button class="btn sm ghost" data-del="${esc(x.id)}">삭제</button></div>`).join('') : '';
+}
+async function copyText(v, okMsg){
+  try{ await navigator.clipboard.writeText(v); toast(okMsg || '복사했어요'); return true; }
+  catch(e){ return false; }
+}
+function shareDialog(count){
+  return new Promise(res => {
+    const msg = $('#dlgMsg'); msg.innerHTML = '';
+    const wrap = document.createElement('div'); wrap.className = 'sharedlg';
+    wrap.innerHTML = `<div class="sdt">🔗 링크로 공유</div>
+      <p>이름(정답)을 적은 사진 <b>${count}장</b>과 눈코입 위치·설정을 올리고 링크를 만들어요. 링크를 받은 사람은 자기 게임으로 그대로 가져갈 수 있어요.</p>
+      <label class="lbl">문제 이름</label>
+      <input class="nameinp" id="shTitle" maxlength="40" placeholder="예) 우리 팀 회식용">
+      <ul class="shnote"><li>목록·검색은 없어요. 링크를 아는 사람만 볼 수 있어요.</li><li><b>30일</b> 뒤 자동으로 지워지고, 그 전에 언제든 지울 수 있어요.</li><li>참가자·팀 이름은 올라가지 않아요.</li></ul>
+      <label class="consent"><input type="checkbox" id="shOk"> 사진 속 사람들에게 공유해도 된다고 허락받았어요</label>`;
+    msg.appendChild(wrap);
+    const row = $('#dlgRow'); row.innerHTML = '';
+    const done = v => { $('#dialog').classList.add('hidden'); res(v); };
+    const no = document.createElement('button'); no.className = 'btn'; no.textContent = '취소'; no.onclick = () => done(null);
+    const ok = document.createElement('button'); ok.className = 'btn primary'; ok.textContent = '링크 만들기'; ok.disabled = true;
+    ok.onclick = () => done({ title: $('#shTitle').value.trim() });
+    row.append(no, ok);
+    $('#shOk').addEventListener('change', e => { ok.disabled = !e.target.checked; });
+    $('#dialog').classList.remove('hidden');
+  });
+}
+function showLink(id, title){
+  const url = shareUrl(id);
+  const msg = $('#dlgMsg'); msg.innerHTML = '';
+  const wrap = document.createElement('div'); wrap.className = 'sharedlg';
+  wrap.innerHTML = `<div class="sdt">링크가 만들어졌어요 🎉</div><p><b>${esc(title)}</b></p>`;
+  const inp = document.createElement('input'); inp.className = 'nameinp'; inp.readOnly = true; inp.value = url;
+  wrap.appendChild(inp);
+  const p = document.createElement('p'); p.className = 'sub'; p.textContent = '이 링크를 카톡 등으로 보내 주세요. 지우기는 아래 "내가 공유한 문제"에서 할 수 있어요 (이 브라우저에서만).';
+  wrap.appendChild(p);
+  msg.appendChild(wrap);
+  const row = $('#dlgRow'); row.innerHTML = '';
+  const close = document.createElement('button'); close.className = 'btn'; close.textContent = '닫기'; close.onclick = () => $('#dialog').classList.add('hidden');
+  const cp = document.createElement('button'); cp.className = 'btn primary'; cp.textContent = '링크 복사';
+  cp.onclick = async () => { if(!(await copyText(url, '링크를 복사했어요'))){ inp.select(); toast('링크를 길게 눌러 복사해 주세요'); } };
+  row.append(close, cp);
+  $('#dialog').classList.remove('hidden');
+  inp.addEventListener('focus', () => inp.select());
+}
+$('#shareBtn').addEventListener('click', async () => {
+  if(!S.people.length){ toast('공유할 사진이 없어요'); return; }
+  if(!ONLINE_OK){
+    await choose(`링크 공유는 claude.ai 페이지 안에서는 안 돼요.\n\n${PAGE_URL}\n\n위 주소에서 열어 주세요. 여기서 만든 문제는 '문제 내보내기'로 저장해서 그쪽에서 '가져오기'하면 돼요.`, ['확인']);
+    return;
+  }
+  const list = namedPeople();
+  if(!list.length){ toast('사진마다 이름(정답)을 적어 주세요'); return; }
+  if(list.length > 80){ toast('한 번에 80장까지 공유할 수 있어요'); return; }
+  const r = await shareDialog(list.length);
+  if(!r) return;
+  const title = r.title || `눈코입 문제 ${list.length}장`;
+  const btn = $('#shareBtn'); btn.disabled = true; btn.textContent = '올리는 중…';
+  try{
+    const body = JSON.stringify({ app: 'nunkoip', v: 2, title, settings: S.settings,
+      people: list.map(p => ({ name: p.name.trim(), src: p.src, w: p.w, h: p.h, boxes: p.boxes, checked: !!p.checked })) });
+    const res = await fetch(`${API}/api/packs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+    if(res.status === 413){ toast('사진이 너무 크거나 많아요. 장수를 줄여 주세요'); return; }
+    if(!res.ok) throw new Error(res.status);
+    const d = await res.json();
+    const all = myShares(); all.unshift({ id: d.id, delKey: d.delKey, title, count: d.count, expires: d.expires });
+    LS.set('nk-shares', all.slice(0, 50));
+    renderMyShares();
+    showLink(d.id, title);
+  }catch(e){ toast('올리지 못했어요. 인터넷을 확인하고 다시 해 주세요'); }
+  finally{ btn.disabled = false; btn.textContent = '🔗 링크로 공유'; }
+});
+$('#myShares').addEventListener('click', async e => {
+  const c = e.target.closest('[data-copy]'), d = e.target.closest('[data-del]');
+  if(c){ const url = shareUrl(c.dataset.copy); if(!(await copyText(url, '링크를 복사했어요'))) await choose('이 링크를 복사해 주세요:\n\n' + url, ['확인']); }
+  if(d){
+    const x = myShares().find(s => s.id === d.dataset.del); if(!x) return;
+    if(!(await ask(`'${x.title}' 공유를 지울까요?\n이미 받은 사람도 링크로는 더 못 가져가요.`, '지우기'))) return;
+    try{
+      const r = await fetch(`${API}/api/packs/${x.id}?key=${encodeURIComponent(x.delKey)}`, { method: 'DELETE' });
+      if(!r.ok && r.status !== 404) throw new Error(r.status);
+      LS.set('nk-shares', myShares().filter(s => s.id !== x.id)); renderMyShares(); toast('공유를 지웠어요');
+    }catch(err){ toast('지우지 못했어요. 잠시 뒤 다시 해 주세요'); }
+  }
+});
+let packBusy = false;
+async function routePack(){
+  const m = location.hash.match(/^#q-([a-z0-9]{10})$/);
+  if(!m || packBusy) return;
+  packBusy = true;
+  const clear = () => history.replaceState(null, '', location.pathname + location.search);
+  try{
+    show('setup');
+    if(!ONLINE_OK){ await choose(`공유 링크는 ${PAGE_URL} 에서 열어 주세요.`, ['확인']); clear(); return; }
+    toast('공유된 문제를 불러오는 중…');
+    let r;
+    try{ r = await fetch(`${API}/api/packs/${m[1]}`); }catch(e){ toast('서버에 연결하지 못했어요. 인터넷을 확인해 주세요'); return; }
+    if(r.status === 404){ await choose('이 링크는 기한(30일)이 지났거나 만든 사람이 지웠어요.', ['확인']); clear(); return; }
+    if(!r.ok){ toast('불러오지 못했어요. 잠시 뒤 다시 열어 주세요'); return; }
+    const d = await r.json();
+    const ok = await importData(d, `🔗 공유받은 문제\n'${d.title}' · ${d.people.length}장`);
+    clear();
+    if(ok) window.scrollTo(0, 0);
+  }finally{ packBusy = false; }
+}
+window.addEventListener('hashchange', routePack);
+
 $('#exportBtn').addEventListener('click', exportSet);
 $('#importBtn').addEventListener('click', () => $('#importFile').click());
 $('#importFile').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if(f) importFile(f); });
@@ -1789,7 +1928,8 @@ function migrate(p){
     S.settings = { ...S.settings, ...(st.settings||{}) };
     renderPeople(); renderPlayers(); updateSettings();
   }
-  updateResumeBar();
+  updateResumeBar(); renderMyShares();
+  routePack();
 })();
 })();
 </script>
